@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] -- 2026-04-19
+
+### Added
+
+- `spec-review-prep` subcommand that folds the per-call prep work the
+  loom `spec-review` skill used to do in shell into one JSON-in/JSON-out
+  call: walk-up project-root discovery with git-toplevel fallback, spec
+  path canonicalization (refuse escape, refuse symlinks on path),
+  `.loom/project.md` parse + context-block assembly, spec content
+  read, state_key computation, full dispatch-team args payload
+  assembly. Returns everything the SKILL.md needs to call
+  `Skill(loom:dispatch-team, args: <blob>)` directly. Recoverable
+  errors (`missing_project_md`, `spec_not_found`, `spec_escape`,
+  `symlink_on_path`, `parse_error`, `validation_error`) surface as
+  `ok:false` rather than non-zero exits so the SKILL.md only needs
+  one Bash call to discover them.
+
+### Changed
+
+- Smoke #4 alpha.6 re-run target captured in the loom runbook: the
+  alpha.6 rewrite compressed `dispatch-team` to under 10 Bash calls,
+  but `spec-review` itself still burned 8 Bash calls before
+  dispatch-team fired, missing the overall "<=10 full dispatch /
+  <5 pre-first-review" target. `spec-review-prep` is the v0.1.3
+  response: expected end-to-end Bash budget after the next loom
+  release is ~10 total (2 for spec-review + ~8 for dispatch-team).
+
 ## [0.1.2] -- 2026-04-19
 
 ### Added

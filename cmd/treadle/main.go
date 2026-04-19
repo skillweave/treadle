@@ -46,6 +46,7 @@ func init() {
 		{"round-init", "Read {members, team_key} on stdin; mint team_name + atomically trace round-start/dispatches/kickoffs; emit JSON to stdout.", cmdRoundInit},
 		{"round-finalize", "Read {round, findings, members_succeeded, members_degraded, ...} on stdin; sort+render synthesis, append findings log, update meta, trace round-end.", cmdRoundFinalize},
 		{"dispatch-end", "Read {outcome, error_reason} on stdin; flatten findings across rounds, render final synthesis, release lock, trace dispatch-end.", cmdDispatchEnd},
+		{"spec-review-prep", "Resolve project_root + canonicalize spec path + parse .loom/project.md + read spec + compute state_key + build dispatch-team args; emit JSON to stdout.", cmdSpecReviewPrep},
 	}
 }
 
@@ -333,6 +334,37 @@ func cmdRoundFinalize(args []string) error {
 		StateDir:  *stateDir,
 		SessionID: *sessionID,
 	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(res)
+}
+
+func cmdSpecReviewPrep(args []string) error {
+	fs := flag.NewFlagSet("spec-review-prep", flag.ContinueOnError)
+	projectRoot := fs.String("project-root", "", "absolute path to the project root (where .loom/ lives); walks up from cwd (with git-toplevel fallback) if empty")
+	team := fs.String("team", "four-round-reviewers", "team-template name to target")
+	policyJSON := fs.String("policy-overrides-json", "", "JSON object of policy overrides to pass through to dispatch-team")
+	if err := fs.Parse(reorderFlags(args)); err != nil {
+		return err
+	}
+	rest := fs.Args()
+	if len(rest) < 1 {
+		return errors.New("usage: treadle spec-review-prep [--project-root=<abs>] [--team=<name>] [--policy-overrides-json=<json>] <spec-path>")
+	}
+	opts := dispatch.SpecReviewPrepOpts{
+		SpecPath:    rest[0],
+		ProjectRoot: *projectRoot,
+		Team:        *team,
+	}
+	if strings.TrimSpace(*policyJSON) != "" {
+		var overrides map[string]any
+		if err := json.Unmarshal([]byte(*policyJSON), &overrides); err != nil {
+			return fmt.Errorf("--policy-overrides-json is not valid JSON: %w", err)
+		}
+		opts.PolicyOverrides = overrides
+	}
+	res, err := dispatch.SpecReviewPrep(opts)
 	if err != nil {
 		return err
 	}
