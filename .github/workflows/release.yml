@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write  # upload release assets
+
+jobs:
+  verify-signature:
+    name: verify signed tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: import maintainer pubkey
+        run: |
+          gpg --import docs/ops/maintainer-pubkeys.asc
+
+      - name: verify tag signature
+        run: |
+          git tag -v "${GITHUB_REF_NAME}"
+
+  cross-compile:
+    name: cross-compile + checksum
+    runs-on: ubuntu-latest
+    needs: verify-signature
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,  goarch: amd64 }
+          - { goos: linux,  goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags "-s -w -X main.Version=${VER}" \
+            -o "dist/treadle" ./cmd/treadle
+          tar -C dist -czf "dist/treadle-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" treadle
+          rm dist/treadle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+
+  publish:
+    name: publish release
+    runs-on: ubuntu-latest
+    needs: cross-compile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: compute checksums
+        working-directory: dist
+        run: |
+          sha256sum *.tar.gz > checksums.sha256
+          cat checksums.sha256
+
+      - name: upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" dist/*.tar.gz dist/checksums.sha256 --clobber

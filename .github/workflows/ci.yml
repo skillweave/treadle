@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test + vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -timeout 120s -race ./...
+
+      - name: build (host target)
+        run: go build -o /tmp/treadle ./cmd/treadle
+
+      - name: smoke test
+        run: |
+          /tmp/treadle version
+          /tmp/treadle compute-state-key docs/specs/demo.md
+          /tmp/treadle validate-state-key good_key
+          if /tmp/treadle validate-state-key "bad.key"; then
+            echo "ERROR: expected bad.key to be rejected"
+            exit 1
+          fi

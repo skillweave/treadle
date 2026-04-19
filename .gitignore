@@ -1,4 +1,11 @@
-treadle
-treadle-*
+# Local build outputs
+/treadle
+/treadle-*
+/dist/
+
+# Release artifacts staged before upload
 *.tar.gz
 checksums.sha256
+
+# Go tooling
+/vendor/

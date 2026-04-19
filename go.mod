@@ -1,3 +1,3 @@
-module treadle
+module github.com/skillweave/treadle
 
-go 1.25
+go 1.23
