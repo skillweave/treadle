@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-04-19
+
+### Fixed
+
+- CLI flag parsing now accepts `--flag=value` in any position relative
+  to positional args. Previously, Go stdlib `flag` stopped parsing at
+  the first positional, silently dropping any later flags. `trace`,
+  `acquire-lock`, and `load-state` were affected — flags placed after
+  positionals were ignored without error. Added `reorderFlags` helper
+  and a table-driven test; the loom smoke-test surfaced this bug when
+  `treadle trace <dir> <sid> <event> --json-fields=<j>` dropped the
+  JSON fields.
+
 ## [0.1.0] — 2026-04-19
 
 ### Added

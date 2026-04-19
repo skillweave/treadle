@@ -164,7 +164,7 @@ func cmdAppendFindingsLog(args []string) error {
 func cmdAcquireLock(args []string) error {
 	fs := flag.NewFlagSet("acquire-lock", flag.ContinueOnError)
 	sessionID := fs.String("session-id", "", "session id to record; auto-generated if absent")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
 	}
 	rest := fs.Args()
@@ -200,7 +200,7 @@ func cmdReleaseLock(args []string) error {
 func cmdLoadState(args []string) error {
 	fs := flag.NewFlagSet("load-state", flag.ContinueOnError)
 	expectedHash := fs.String("expected-template-hash", "", "if set, reject+quarantine when stored hash differs")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
 	}
 	rest := fs.Args()
@@ -235,7 +235,7 @@ func cmdSaveMeta(args []string) error {
 func cmdTrace(args []string) error {
 	fs := flag.NewFlagSet("trace", flag.ContinueOnError)
 	jsonFields := fs.String("json-fields", "", "JSON object of extra fields to attach to the event")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
 	}
 	rest := fs.Args()
@@ -265,21 +265,30 @@ func writeJSON(v any) error {
 	return nil
 }
 
-// ensureAbs resolves relative paths against the current working dir
-// before handing them off — important because treadle is invoked from
-// inside a skill's Bash tool, which may chdir before exec.
-func ensureAbs(p string) (string, error) {
-	if filepath.IsAbs(p) {
-		return p, nil
+// reorderFlags moves tokens that look like flags (leading "-") to the
+// front of the slice. The Go stdlib flag package stops parsing at the
+// first positional argument, so callers that place flags after
+// positionals silently lose the flag. Reordering before Parse lets
+// skills invoke `treadle trace <dir> <sid> <event> --json-fields=<j>`
+// or `--json-fields=<j> <dir> <sid> <event>` interchangeably.
+//
+// Only handles the --flag=value form. Two-token --flag value form is
+// not preserved (the value would be misclassified as positional). All
+// treadle subcommands use the = form; keep it that way.
+func reorderFlags(args []string) []string {
+	flags := make([]string, 0, len(args))
+	positional := make([]string, 0, len(args))
+	for _, a := range args {
+		if len(a) > 1 && a[0] == '-' {
+			flags = append(flags, a)
+		} else {
+			positional = append(positional, a)
+		}
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cwd, p), nil
+	return append(flags, positional...)
 }
 
-// keep ensureAbs referenced from at least one place so `go vet` doesn't
-// warn about unused helper during migration periods
+// keep filepath referenced even when nothing below uses it (some
+// platforms' build tags may prune helpers).
+var _ = filepath.Join
 var _ = strings.Split
-var _ = ensureAbs
