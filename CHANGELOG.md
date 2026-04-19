@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] -- 2026-04-19
+
+### Added
+
+- Four coarse-grained lifecycle subcommands that collapse the per-step
+  work the loom `dispatch-team` skill previously had to chain across
+  60 to 80 atomic helper calls per dispatch. Each new subcommand reads
+  JSON on stdin, returns JSON on stdout, and bundles 5 to 15 atomic
+  operations plus the relevant trace events:
+  - `dispatch-init` -- args validate, team parse, policy resolve (with
+    ceiling enforcement), state_dir compute + mkdir, fs-locality check,
+    session-id mint, advisory lock acquire, prior-state load with
+    template-hash quarantine, `dispatch-start` trace. Returns the full
+    context the SKILL.md needs to drive rounds (session_id, state_dir,
+    members, resolved_policy, prior_rounds, etc.). Lock-held / hash
+    mismatch / validation errors surface as `ok:false` rather than
+    non-zero exits so the caller only needs one Bash call to discover
+    them.
+  - `round-init` -- atomically emits `round-start` + N `agent-dispatch`
+    + N `agent-kickoff` trace events and returns the `team_name` the
+    SKILL.md uses for `TeamCreate`, plus deadlines for the 60s-renudge
+    / 120s-degrade silence clock.
+  - `round-finalize` -- severity-sorts LLM-produced findings, renders
+    the per-round synthesis markdown (including the degraded banner
+    when relevant), appends the findings-log block atomically, updates
+    `meta.json` (append on normal round, replace on rerun), and traces
+    `round-end`.
+  - `dispatch-end` -- flattens findings across rounds with
+    `first_surfaced_round` annotation, renders the final synthesis
+    markdown, releases the advisory lock, and traces `dispatch-end`.
+- `Finding`, `DegradedMember`, `RoundEntry` as the canonical structured
+  shapes passed through round-finalize and stored in meta.json rounds.
+- `SortFindings`, `RenderRoundSynthesis`, `RenderFinalSynthesis` as
+  exported helpers for caller testing.
+
+### Changed
+
+- Lifecycle subcommand target: under 10 Bash calls per clean 2-round
+  dispatch (previously 60 to 80 in alpha.5). This is the per-dispatch
+  budget the loom `dispatch-team` SKILL.md now enforces.
+
 ## [0.1.1] — 2026-04-19
 
 ### Fixed

@@ -42,6 +42,10 @@ func init() {
 		{"save-meta", "Read stdin (JSON with rounds + template_hash); atomically save to <state-dir>/meta.json.", cmdSaveMeta},
 		{"trace", "Append JSONL event to <state-dir>/trace/<session-id>.jsonl. Positional: <state-dir> <session-id> <event-type> [--json-fields=<json>].", cmdTrace},
 		{"new-session-id", "Print a fresh time-prefixed session id to stdout.", cmdNewSessionID},
+		{"dispatch-init", "Read dispatch args JSON on stdin; bundle parse+validate+policy+state+lock+prior-state+trace-start; emit JSON to stdout.", cmdDispatchInit},
+		{"round-init", "Read {members, team_key} on stdin; mint team_name + atomically trace round-start/dispatches/kickoffs; emit JSON to stdout.", cmdRoundInit},
+		{"round-finalize", "Read {round, findings, members_succeeded, members_degraded, ...} on stdin; sort+render synthesis, append findings log, update meta, trace round-end.", cmdRoundFinalize},
+		{"dispatch-end", "Read {outcome, error_reason} on stdin; flatten findings across rounds, render final synthesis, release lock, trace dispatch-end.", cmdDispatchEnd},
 	}
 }
 
@@ -254,6 +258,113 @@ func cmdTrace(args []string) error {
 func cmdNewSessionID(args []string) error {
 	fmt.Println(dispatch.NewSessionID())
 	return nil
+}
+
+func cmdDispatchInit(args []string) error {
+	fs := flag.NewFlagSet("dispatch-init", flag.ContinueOnError)
+	pluginRoot := fs.String("plugin-root", os.Getenv("LOOM_PLUGIN_ROOT"), "absolute path to the plugin root (where teams/ lives); defaults to $LOOM_PLUGIN_ROOT")
+	projectRoot := fs.String("project-root", "", "absolute path to the project root (where .loom/ lives); walks up from cwd if empty")
+	if err := fs.Parse(reorderFlags(args)); err != nil {
+		return err
+	}
+	stdin, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	var in dispatch.DispatchInitArgs
+	dec := json.NewDecoder(strings.NewReader(string(stdin)))
+	dec.UseNumber()
+	if err := dec.Decode(&in); err != nil {
+		return fmt.Errorf("stdin is not valid JSON: %w", err)
+	}
+	res, err := dispatch.DispatchInit(&in, dispatch.DispatchInitOpts{
+		PluginRoot:  *pluginRoot,
+		ProjectRoot: *projectRoot,
+	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(res)
+}
+
+func cmdRoundInit(args []string) error {
+	fs := flag.NewFlagSet("round-init", flag.ContinueOnError)
+	stateDir := fs.String("state-dir", "", "absolute path to the state dir (required)")
+	sessionID := fs.String("session-id", "", "session id from dispatch-init (required)")
+	round := fs.Int("round", 0, "round number, 1-indexed (required)")
+	if err := fs.Parse(reorderFlags(args)); err != nil {
+		return err
+	}
+	stdin, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	var in dispatch.RoundInitArgs
+	if err := json.Unmarshal(stdin, &in); err != nil {
+		return fmt.Errorf("stdin is not valid JSON: %w", err)
+	}
+	res, err := dispatch.RoundInit(&in, dispatch.RoundInitOpts{
+		StateDir:  *stateDir,
+		SessionID: *sessionID,
+		Round:     *round,
+	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(res)
+}
+
+func cmdRoundFinalize(args []string) error {
+	fs := flag.NewFlagSet("round-finalize", flag.ContinueOnError)
+	stateDir := fs.String("state-dir", "", "absolute path to the state dir (required)")
+	sessionID := fs.String("session-id", "", "session id from dispatch-init (required)")
+	if err := fs.Parse(reorderFlags(args)); err != nil {
+		return err
+	}
+	stdin, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	var in dispatch.RoundFinalizeArgs
+	if err := json.Unmarshal(stdin, &in); err != nil {
+		return fmt.Errorf("stdin is not valid JSON: %w", err)
+	}
+	res, err := dispatch.RoundFinalize(&in, dispatch.RoundFinalizeOpts{
+		StateDir:  *stateDir,
+		SessionID: *sessionID,
+	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(res)
+}
+
+func cmdDispatchEnd(args []string) error {
+	fs := flag.NewFlagSet("dispatch-end", flag.ContinueOnError)
+	stateDir := fs.String("state-dir", "", "absolute path to the state dir (required)")
+	sessionID := fs.String("session-id", "", "session id from dispatch-init (required)")
+	if err := fs.Parse(reorderFlags(args)); err != nil {
+		return err
+	}
+	stdin, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	var in dispatch.DispatchEndArgs
+	// stdin is optional — empty body = default outcome.
+	if len(strings.TrimSpace(string(stdin))) > 0 {
+		if err := json.Unmarshal(stdin, &in); err != nil {
+			return fmt.Errorf("stdin is not valid JSON: %w", err)
+		}
+	}
+	res, err := dispatch.DispatchEnd(&in, dispatch.DispatchEndOpts{
+		StateDir:  *stateDir,
+		SessionID: *sessionID,
+	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(res)
 }
 
 func writeJSON(v any) error {
